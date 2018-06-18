@@ -5462,7 +5462,7 @@ static void drive_machine(conn *c) {
 
             break;
 
-        case conn_new_cmd:
+        case conn_new_cmd:  // 工作线程创建客户端conn时的初始状态
             /* Only process nreqs at a time to avoid starving other
                connections */
 
@@ -5950,6 +5950,7 @@ static int server_socket(const char *interface,
     return success == 0;
 }
 
+/* 建立一个服务端监听socket */
 static int server_sockets(int port, enum network_transport transport,
                           FILE *portnumber_file) {
     if (settings.inter == NULL) {
@@ -7711,7 +7712,7 @@ int main (int argc, char **argv) {
         }
 
         errno = 0;
-        if (settings.port && server_sockets(settings.port, tcp_transport,
+        if (settings.port && server_sockets(settings.port, tcp_transport,// TCP
                                            portnumber_file)) {
             vperror("failed to listen on TCP port %d", settings.port);
             exit(EX_OSERR);
@@ -7726,7 +7727,7 @@ int main (int argc, char **argv) {
 
         /* create the UDP listening socket and bind it */
         errno = 0;
-        if (settings.udpport && server_sockets(settings.udpport, udp_transport,
+        if (settings.udpport && server_sockets(settings.udpport, udp_transport,// UDP
                                               portnumber_file)) {
             vperror("failed to listen on UDP port %d", settings.udpport);
             exit(EX_OSERR);

@@ -1,3 +1,0 @@
-/Users/oyld/work/memcached-1.5.7/cmake-build-debug/CMakeFiles/rebuild_cache.dir
-/Users/oyld/work/memcached-1.5.7/cmake-build-debug/CMakeFiles/edit_cache.dir
-/Users/oyld/work/memcached-1.5.7/cmake-build-debug/CMakeFiles/memcached_1_5_7.dir
