@@ -26,7 +26,7 @@ enum conn_queue_item_modes {
 };
 typedef struct conn_queue_item CQ_ITEM;
 struct conn_queue_item {
-    int               sfd;
+    int               sfd;                  // socket fd
     enum conn_states  init_state;
     int               event_flags;
     int               read_buffer_size;
@@ -392,6 +392,7 @@ static void *worker_libevent(void *arg) {
 /*
  * Processes an incoming "handle a new connection" item. This is called when
  * input arrives on the libevent wakeup pipe.
+ * pipe可读时被调用
  */
 static void thread_libevent_process(int fd, short which, void *arg) {
     LIBEVENT_THREAD *me = arg;
@@ -475,7 +476,7 @@ void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
         return ;
     }
 
-    int tid = (last_thread + 1) % settings.num_threads;
+    int tid = (last_thread + 1) % settings.num_threads; // 轮询选择一个工作线程
 
     LIBEVENT_THREAD *thread = threads + tid;
 
@@ -488,7 +489,7 @@ void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
     item->transport = transport;
     item->mode = queue_new_conn;
 
-    cq_push(thread->new_conn_queue, item);
+    cq_push(thread->new_conn_queue, item);  // 把CQ_ITEM压入到选中工作线程的新连接队列中
 
     MEMCACHED_CONN_DISPATCH(sfd, thread->thread_id);
     buf[0] = 'c';

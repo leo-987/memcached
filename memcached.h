@@ -431,7 +431,7 @@ extern struct settings settings;
 #define ITEM_CAS 2
 
 /* temp */
-#define ITEM_SLABBED 4
+#define ITEM_SLABBED 4  // 未存放item
 
 /* Item was fetched at least once in its lifetime */
 #define ITEM_FETCHED 8
@@ -553,7 +553,7 @@ typedef struct _io_wrap {
  * The structure representing a connection into memcached.
  */
 struct conn {
-    int    sfd;
+    int    sfd;     // socket fd
     sasl_conn_t *sasl_conn;
     bool authenticated;
     enum conn_states  state;
@@ -564,9 +564,9 @@ struct conn {
     short  which;   /** which events were just triggered */
 
     char   *rbuf;   /** buffer to read commands into */
-    char   *rcurr;  /** but if we parsed some already, this is where we stopped */
+    char   *rcurr;  /** but if we parsed some already, this is where we stopped，指向未解析数据的起始位置 */
     int    rsize;   /** total allocated size of rbuf */
-    int    rbytes;  /** how much data, starting from rcur, do we have unparsed */
+    int    rbytes;  /** how much data, starting from rcur, do we have unparsed，未解析数据长度 */
 
     char   *wbuf;
     char   *wcurr;
@@ -593,11 +593,11 @@ struct conn {
     int    sbytes;    /* how many bytes to swallow */
 
     /* data for the mwrite state */
-    struct iovec *iov;
+    struct iovec *iov;/* 连接建立时初始化 */
     int    iovsize;   /* number of elements allocated in iov[] */
     int    iovused;   /* number of elements used in iov[] */
 
-    struct msghdr *msglist;
+    struct msghdr *msglist; /* 连接建立时初始化 */
     int    msgsize;   /* number of elements allocated in msglist[] */
     int    msgused;   /* number of elements used in msglist[] */
     int    msgcurr;   /* element in msglist[] being transmitted now */

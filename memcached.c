@@ -26,6 +26,7 @@
 #include <sys/uio.h>
 #include <ctype.h>
 #include <stdarg.h>
+#include <stdbool.h>
 
 /* some POSIX systems need the following definition
  * to get mlockall flags out of sys/mman.h.  */
@@ -288,7 +289,7 @@ static int add_msghdr(conn *c)
 
     assert(c != NULL);
 
-    if (c->msgsize == c->msgused) {
+    if (c->msgsize == c->msgused) { // msgsize初始值为10
         msg = realloc(c->msglist, c->msgsize * 2 * sizeof(struct msghdr));
         if (! msg) {
             STATS_LOCK();
@@ -1919,6 +1920,7 @@ static void bin_read_key(conn *c, enum bin_substates next_substate, int extra) {
     c->rlbytes = c->keylen + extra;
 
     /* Ok... do we have room for the extras and the key in the input buffer? */
+    /* 给keylen和extra在rbuf中留出空间 */
     ptrdiff_t offset = c->rcurr + sizeof(protocol_binary_request_header) - c->rbuf;
     if (c->rlbytes > c->rsize - offset) {
         size_t nsize = c->rsize;
@@ -4896,6 +4898,7 @@ static void process_command(conn *c, char *command) {
 
 /*
  * if we have a complete line in the buffer, process it.
+ * 解析协议header，并为后面的读取做准备
  */
 static int try_read_command(conn *c) {
     assert(c != NULL);
@@ -4978,6 +4981,7 @@ static int try_read_command(conn *c) {
 
             dispatch_bin_command(c);
 
+            /* 解析完头命令头部了 */
             c->rbytes -= sizeof(c->binary_header);
             c->rcurr += sizeof(c->binary_header);
         }
@@ -5085,6 +5089,7 @@ static enum try_read_result try_read_network(conn *c) {
     int num_allocs = 0;
     assert(c != NULL);
 
+    /* 如果read buffer内有未解析数据，先搬到read buffer开头 */
     if (c->rcurr != c->rbuf) {
         if (c->rbytes != 0) /* otherwise there's nothing to copy */
             memmove(c->rbuf, c->rcurr, c->rbytes);
@@ -5092,6 +5097,7 @@ static enum try_read_result try_read_network(conn *c) {
     }
 
     while (1) {
+        /* read buffer满了，需要扩容 */
         if (c->rbytes >= c->rsize) {
             if (num_allocs == 4) {
                 return gotdata;
@@ -5114,8 +5120,8 @@ static enum try_read_result try_read_network(conn *c) {
             c->rsize *= 2;
         }
 
-        int avail = c->rsize - c->rbytes;
-        res = read(c->sfd, c->rbuf + c->rbytes, avail);
+        int avail = c->rsize - c->rbytes;                   // read buffer剩余空间
+        res = read(c->sfd, c->rbuf + c->rbytes, avail);     // 循环读取socket数据到read buffer，直到socket无数据可读
         if (res > 0) {
             pthread_mutex_lock(&c->thread->stats.mutex);
             c->thread->stats.bytes_read += res;
@@ -5416,7 +5422,7 @@ static void drive_machine(conn *c) {
                 stats.rejected_conns++;
                 STATS_UNLOCK();
             } else {
-                dispatch_conn_new(sfd, conn_new_cmd, EV_READ | EV_PERSIST,
+                dispatch_conn_new(sfd, conn_new_cmd, EV_READ | EV_PERSIST,    // for TCP
                                      DATA_BUFFER_SIZE, c->transport);
             }
 
@@ -5928,7 +5934,7 @@ static int server_socket(const char *interface,
                  * FD to each thread.
                  */
                 int per_thread_fd = c ? dup(sfd) : sfd;
-                dispatch_conn_new(per_thread_fd, conn_read,
+                dispatch_conn_new(per_thread_fd, conn_read,    // for UDP
                                   EV_READ | EV_PERSIST,
                                   UDP_READ_BUFFER_SIZE, transport);
             }

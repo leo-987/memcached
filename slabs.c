@@ -28,7 +28,7 @@ typedef struct {
     unsigned int size;      /* sizes of items */
     unsigned int perslab;   /* how many items per slab */
 
-    void *slots;           /* list of item ptrs */
+    void *slots;           /* list of item ptrs，空闲item链表 */
     unsigned int sl_curr;   /* total free items in list */
 
     /* 分配了slab_list空间并不一定分配了slab */
