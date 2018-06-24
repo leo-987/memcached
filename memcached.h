@@ -112,14 +112,17 @@
 #define ITEM_suffix(item) ((char*) &((item)->data) + (item)->nkey + 1 \
          + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
 
+/* 返回item value header指针 */
 #define ITEM_data(item) ((char*) &((item)->data) + (item)->nkey + 1 \
          + (item)->nsuffix \
          + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
 
+/* 完整item大小 */
 #define ITEM_ntotal(item) (sizeof(struct _stritem) + (item)->nkey + 1 \
          + (item)->nsuffix + (item)->nbytes \
          + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
 
+/* 计算item属于哪个slab class */
 #define ITEM_clsid(item) ((item)->slabs_clsid & ~(3<<6))
 #define ITEM_lruid(item) ((item)->slabs_clsid & (3<<6))
 
@@ -427,8 +430,8 @@ extern struct stats_state stats_state;
 extern time_t process_started;
 extern struct settings settings;
 
-#define ITEM_LINKED 1
-#define ITEM_CAS 2
+#define ITEM_LINKED 1   // 该item插入到LRU队列了
+#define ITEM_CAS 2      // 该item使用CAS
 
 /* temp */
 #define ITEM_SLABBED 4  // 未存放item
@@ -450,13 +453,13 @@ extern struct settings settings;
  */
 typedef struct _stritem {
     /* Protected by LRU locks */
-    struct _stritem *next;
-    struct _stritem *prev;
+    struct _stritem *next;      /* 用于LRU链表 */
+    struct _stritem *prev;      /* 用于LRU链表 */
     /* Rest are protected by an item lock */
-    struct _stritem *h_next;    /* hash chain next */
-    rel_time_t      time;       /* least recent access */
-    rel_time_t      exptime;    /* expire time */
-    int             nbytes;     /* size of data */
+    struct _stritem *h_next;    /* hash chain next，用于哈希表的冲突链 */
+    rel_time_t      time;       /* least recent access，最后一次访问时间，绝对时间 */
+    rel_time_t      exptime;    /* expire time，过期失效时间，绝对时间 */
+    int             nbytes;     /* size of data，本item存放的数据的长度 */
     unsigned short  refcount;
     uint8_t         nsuffix;    /* length of flags-and-length string */
     uint8_t         it_flags;   /* ITEM_* above */
@@ -467,7 +470,7 @@ typedef struct _stritem {
     union {
         uint64_t cas;
         char end;
-    } data[];
+    } data[];   /* 柔性数组 */
     /* if it_flags & ITEM_CAS we have 8 bytes CAS */
     /* then null-terminated key */
     /* then " flags length\r\n" (no terminating null) */

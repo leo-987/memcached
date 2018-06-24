@@ -25,7 +25,7 @@
 /* powers-of-N allocation structures */
 
 typedef struct {
-    unsigned int size;      /* sizes of items */
+    unsigned int size;      /* sizes of items，本class一个item最大长度 */
     unsigned int perslab;   /* how many items per slab */
 
     void *slots;           /* list of item ptrs，空闲item链表 */
@@ -220,11 +220,11 @@ static int grow_slab_list (const unsigned int id) {
     return 1;
 }
 
+/* 把ptr指向的slab切分成相同大小的item，然后放入到编号为id的slab class的空闲链表中 */
 static void split_slab_page_into_freelist(char *ptr, const unsigned int id) {
     slabclass_t *p = &slabclass[id];
     int x;
 
-    /* 把编号为id的slab class中的所有item放入slot链表中 */
     for (x = 0; x < p->perslab; x++) {
         do_slabs_free(ptr, 0, id);
         ptr += p->size;
@@ -283,6 +283,7 @@ static int do_slabs_newslab(const unsigned int id) {
 }
 
 /*@null@*/
+/* 从序号为id的slab class的free list中取出一块空闲的chunk */
 static void *do_slabs_alloc(const size_t size, unsigned int id, uint64_t *total_bytes,
         unsigned int flags) {
     slabclass_t *p;
@@ -331,6 +332,7 @@ static void *do_slabs_alloc(const size_t size, unsigned int id, uint64_t *total_
     return ret;
 }
 
+/* 把it指向的item和跟它一起组成链表的item放入slab class空闲链表中 */
 static void do_slabs_free_chunked(item *it, const size_t size) {
     item_chunk *chunk = (item_chunk *) ITEM_data(it);
     slabclass_t *p;
@@ -382,7 +384,10 @@ static void do_slabs_free_chunked(item *it, const size_t size) {
     return;
 }
 
-
+/*
+ * 把ptr指向的item放到对应的slab class的空闲链表中
+ * 如果ptr指向一个chunk链表，则链表中所有的chunk都要归还到各自的slab class中
+ */
 static void do_slabs_free(void *ptr, const size_t size, unsigned int id) {
     slabclass_t *p;
     item *it;

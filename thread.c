@@ -646,7 +646,7 @@ enum store_item_type store_item(item *item, int comm, conn* c) {
     enum store_item_type ret;
     uint32_t hv;
 
-    hv = hash(ITEM_key(item), item->nkey);
+    hv = hash(ITEM_key(item), item->nkey);  // 根据item key计算出hash value
     item_lock(hv);
     ret = do_store_item(item, comm, c, hv);
     item_unlock(hv);

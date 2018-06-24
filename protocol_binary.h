@@ -156,7 +156,7 @@ extern "C"
             uint8_t extlen;
             uint8_t datatype;
             uint16_t reserved;
-            uint32_t bodylen;
+            uint32_t bodylen;   // value_len + key_len + ext_len
             uint32_t opaque;
             uint64_t cas;
         } request;

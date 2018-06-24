@@ -74,6 +74,7 @@ void assoc_init(const int hashtable_init) {
     STATS_UNLOCK();
 }
 
+/* 在hash值为hv的hash桶里找出指定key的item */
 item *assoc_find(const char *key, const size_t nkey, const uint32_t hv) {
     item *it;
     unsigned int oldbucket;
@@ -155,6 +156,7 @@ void assoc_start_expand(uint64_t curr_items) {
 }
 
 /* Note: this isn't an assoc_update.  The key must not already exist to call this */
+/* 把item插入hash值为hv的hash桶中冲突链表的头部 */
 int assoc_insert(item *it, const uint32_t hv) {
     unsigned int oldbucket;
 

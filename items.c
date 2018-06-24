@@ -51,11 +51,11 @@ typedef struct {
     rel_time_t evicted_time;
 } itemstats_t;
 
-static item *heads[LARGEST_ID];
-static item *tails[LARGEST_ID];
+static item *heads[LARGEST_ID];             // 指向每一个LRU队列头
+static item *tails[LARGEST_ID];             // 指向每一个LRU队列尾
 static itemstats_t itemstats[LARGEST_ID];
-static unsigned int sizes[LARGEST_ID];
-static uint64_t sizes_bytes[LARGEST_ID];
+static unsigned int sizes[LARGEST_ID];      // 每一个LRU队列有多少个item
+static uint64_t sizes_bytes[LARGEST_ID];    // 每一个LRU队列占用的字节数
 static unsigned int *stats_sizes_hist = NULL;
 static uint64_t stats_sizes_cas_min = 0;
 static int stats_sizes_buckets = 0;
@@ -115,6 +115,10 @@ uint64_t get_cas_id(void) {
     return next_id;
 }
 
+/*
+ * 返回值=1：item长时间没被访问
+ * 返回值=0：item未过期
+ */
 int item_is_flushed(item *it) {
     rel_time_t oldest_live = settings.oldest_live;
     uint64_t cas = ITEM_get_cas(it);
@@ -181,6 +185,10 @@ static size_t item_make_header(const uint8_t nkey, const unsigned int flags, con
     return sizeof(item) + nkey + *nsuffix + nbytes;
 }
 
+/*
+ * 从序号为id的slab class的free list中取出一块空闲的chunk
+ * 如果没有足够的空闲chunk，则slab class需要分配新的slab
+ */
 item *do_item_alloc_pull(const size_t ntotal, const unsigned int id) {
     item *it = NULL;
     int i;
@@ -254,6 +262,11 @@ item_chunk *do_item_alloc_chunk(item_chunk *ch, const size_t bytes_remain) {
     return nch;
 }
 
+/*
+ * 1. 计算新的item所需字节数
+ * 2. 根据需要的大小，计算slab class id
+ * 3. 从对应slab class的空闲链表中获得item空间
+ */
 item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
                     const rel_time_t exptime, const int nbytes) {
     uint8_t nsuffix;
@@ -383,6 +396,7 @@ bool item_size_ok(const size_t nkey, const int flags, const int nbytes) {
     return slabs_clsid(ntotal) != 0;
 }
 
+/* 将it插入到对应的LRU队列中 */
 static void do_item_link_q(item *it) { /* item is the new head */
     item **head, **tail;
     assert((it->it_flags & ITEM_SLABBED) == 0);
@@ -423,6 +437,7 @@ static void item_link_q_warm(item *it) {
     pthread_mutex_unlock(&lru_locks[it->slabs_clsid]);
 }
 
+/* 将it从对应的LRU队列中删除 */
 static void do_item_unlink_q(item *it) {
     item **head, **tail;
     head = &heads[it->slabs_clsid];
@@ -461,6 +476,10 @@ static void item_unlink_q(item *it) {
     pthread_mutex_unlock(&lru_locks[it->slabs_clsid]);
 }
 
+/*
+ * 1. 将item放到哈希表中
+ * 2. 将item放到LRU链表中
+ */
 int do_item_link(item *it, const uint32_t hv) {
     MEMCACHED_ITEM_LINK(ITEM_key(it), it->nkey, it->nbytes);
     assert((it->it_flags & (ITEM_LINKED|ITEM_SLABBED)) == 0);
@@ -483,6 +502,10 @@ int do_item_link(item *it, const uint32_t hv) {
     return 1;
 }
 
+/*
+ * 1. 把item从哈希表中删除
+ * 2. 把item从LRU链表中删除
+ */
 void do_item_unlink(item *it, const uint32_t hv) {
     MEMCACHED_ITEM_UNLINK(ITEM_key(it), it->nkey, it->nbytes);
     if ((it->it_flags & ITEM_LINKED) != 0) {
@@ -540,6 +563,7 @@ void do_item_update_nolock(item *it) {
 }
 
 /* Bump the last accessed time, or relink if we're in compat mode */
+/* 将it放到对应LRU队列的最前面，并更新it的访问时间戳 */
 void do_item_update(item *it) {
     MEMCACHED_ITEM_UPDATE(ITEM_key(it), it->nkey, it->nbytes);
 
@@ -944,6 +968,10 @@ void item_stats_sizes(ADD_STAT add_stats, void *c) {
 }
 
 /** wrapper around assoc_find which does the lazy expiration logic */
+/*
+ * 根据hv和key在hash桶中找到对应的item
+ * 如果是GET命令，则do_update=true，还需要把item放到LRU队列的头部，表示最近有访问
+ */
 item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c, const bool do_update) {
     item *it = assoc_find(key, nkey, hv);
     if (it != NULL) {

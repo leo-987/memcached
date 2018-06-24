@@ -2413,7 +2413,7 @@ static void process_bin_update(conn *c) {
         stats_prefix_record_set(key, nkey);
     }
 
-    it = item_alloc(key, nkey, req->message.body.flags,
+    it = item_alloc(key, nkey, req->message.body.flags,    /* 从slab class的空闲链表取出一块item */
             realtime(req->message.body.expiration), vlen+2);
 
     if (it == 0) {
@@ -2468,11 +2468,11 @@ static void process_bin_update(conn *c) {
         c->cmd = NREAD_CAS;
     }
 
-    c->item = it;
-    c->ritem = ITEM_data(it);
+    c->item = it;                       // item现在指向刚分配item的起始位置
+    c->ritem = ITEM_data(it);           // ritem现在指向刚分配item的value部分
     c->rlbytes = vlen;
-    conn_set_state(c, conn_nread);
-    c->substate = bin_read_set_value;
+    conn_set_state(c, conn_nread);      // 下一个循环开始从socket读取value
+    c->substate = bin_read_set_value;   // 下次进入complete_nread_binary函数走解析value的分支
 }
 
 static void process_bin_append_prepend(conn *c) {
@@ -2621,11 +2621,11 @@ static void complete_nread_binary(conn *c) {
                 c->cmd == PROTOCOL_BINARY_CMD_PREPEND) {
             process_bin_append_prepend(c);
         } else {
-            process_bin_update(c);
+            process_bin_update(c);  // 解析key
         }
         break;
     case bin_read_set_value:
-        complete_update_bin(c);
+        complete_update_bin(c);     // 解析value
         break;
     case bin_reading_get_key:
     case bin_reading_touch_key:
@@ -2788,7 +2788,7 @@ static int _store_item_copy_data(int comm, item *old_it, item *new_it, item *add
  */
 enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t hv) {
     char *key = ITEM_key(it);
-    item *old_it = do_item_get(key, it->nkey, hv, c, DONT_UPDATE);
+    item *old_it = do_item_get(key, it->nkey, hv, c, DONT_UPDATE);  // in do_store_item
     enum store_item_type stored = NOT_STORED;
 
     item *new_it = NULL;
@@ -2796,6 +2796,7 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
 
     if (old_it != NULL && comm == NREAD_ADD) {
         /* add only adds a nonexistent item, but promote to head of LRU */
+        /* 如果是ADD命令并且item已经存在，那么只是更新LRU，不会做其它操作 */
         do_item_update(old_it);
     } else if (!old_it && (comm == NREAD_REPLACE
         || comm == NREAD_APPEND || comm == NREAD_PREPEND))
@@ -2870,9 +2871,11 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
                     flags = 0;
                 }
 
+                /* 分配一个更大的item */
                 new_it = do_item_alloc(key, it->nkey, flags, old_it->exptime, it->nbytes + old_it->nbytes - 2 /* CRLF */);
 
                 /* copy data from it and old_it to new_it */
+                /* 把新老item的数据都拷贝过去 */
                 if (new_it == NULL || _store_item_copy_data(comm, old_it, new_it, it) == -1) {
                     failed_alloc = 1;
                     stored = NOT_STORED;
@@ -5274,6 +5277,7 @@ static enum transmit_result transmit(conn *c) {
 /* Does a looped read to fill data chunks */
 /* TODO: restrict number of times this can loop.
  * Also, benchmark using readv's.
+ * 从socket读取value到conn->ritem
  */
 static int read_into_chunked_item(conn *c) {
     int total = 0;
@@ -5514,6 +5518,7 @@ static void drive_machine(conn *c) {
 
             if (!c->item || (((item *)c->item)->it_flags & ITEM_CHUNKED) == 0) {
                 /* first check if we have leftovers in the conn_read buffer */
+                /* 这里没太看懂 */
                 if (c->rbytes > 0) {
                     int tocopy = c->rbytes > c->rlbytes ? c->rlbytes : c->rbytes;
                     if (c->ritem != c->rcurr) {
