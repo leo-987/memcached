@@ -1963,7 +1963,7 @@ static void bin_read_key(conn *c, enum bin_substates next_substate, int extra) {
     }
 
     /* preserve the header in the buffer.. */
-    c->ritem = c->rcurr + sizeof(protocol_binary_request_header);
+    c->ritem = c->rcurr + sizeof(protocol_binary_request_header);   // 为后续读取数据做准备
     conn_set_state(c, conn_nread);
 }
 
@@ -2390,7 +2390,7 @@ static void process_bin_update(conn *c) {
     req->message.body.flags = ntohl(req->message.body.flags);
     req->message.body.expiration = ntohl(req->message.body.expiration);
 
-    vlen = c->binary_header.request.bodylen - (nkey + c->binary_header.request.extlen);
+    vlen = c->binary_header.request.bodylen - (nkey + c->binary_header.request.extlen); // value len
 
     if (settings.verbose > 1) {
         int ii;
@@ -5497,7 +5497,7 @@ static void drive_machine(conn *c) {
             }
             break;
 
-        case conn_nread:
+        case conn_nread:    // 要么是读取key，要么是读取value，然后解析
             if (c->rlbytes == 0) {
                 complete_nread(c);
                 break;
@@ -5539,7 +5539,7 @@ static void drive_machine(conn *c) {
                     }
                     c->ritem += res;
                     c->rlbytes -= res;
-                    break;
+                    break;  // 下一次还是到conn_nread状态
                 }
             } else {
                 res = read_into_chunked_item(c);
