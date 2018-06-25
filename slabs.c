@@ -37,7 +37,7 @@ typedef struct {
     void **slab_list;       /* array of slab pointers */
     unsigned int list_size; /* size of prev array */
 
-    size_t requested; /* The number of requested bytes */
+    size_t requested; /* The number of requested bytes，本slab class分配出去的字节数 */
 } slabclass_t;
 
 static slabclass_t slabclass[MAX_NUMBER_OF_SLAB_CLASSES];
@@ -48,9 +48,9 @@ static size_t mem_malloced = 0;
 static bool mem_limit_reached = false;
 static int power_largest;
 
-static void *mem_base = NULL;
-static void *mem_current = NULL;
-static size_t mem_avail = 0;    /* 默认64MB */
+static void *mem_base = NULL;       /* 指向那块预先分配的内存 */
+static void *mem_current = NULL;    /* 指向还可以使用的内存的开始位置 */
+static size_t mem_avail = 0;        /* 还有多少内存是可以使用 */
 #ifdef EXTSTORE
 static void *storage  = NULL;
 #endif
@@ -186,6 +186,10 @@ void slabs_prefill_global(void) {
     mem_limit_reached = true;
 }
 
+/*
+ * 为每个slab class分配slab内存块，并切成一个个item放入空闲链表
+ * 参数为使用到的slabclass数组元素个数
+ */
 static void slabs_preallocate (const unsigned int maxslabs) {
     int i;
     unsigned int prealloc = 0;
@@ -208,6 +212,7 @@ static void slabs_preallocate (const unsigned int maxslabs) {
     }
 }
 
+/* 增加编号为id的slab class中的slab_list数组长度 */
 static int grow_slab_list (const unsigned int id) {
     slabclass_t *p = &slabclass[id];
     if (p->slabs == p->list_size) {
@@ -220,12 +225,13 @@ static int grow_slab_list (const unsigned int id) {
     return 1;
 }
 
-/* 把ptr指向的slab切分成相同大小的item，然后放入到编号为id的slab class的空闲链表中 */
+/* 把ptr指向的slab切分成相同大小的item，然后放入到编号为id的slab class的空闲链表中，相互用链表串起来 */
 static void split_slab_page_into_freelist(char *ptr, const unsigned int id) {
     slabclass_t *p = &slabclass[id];
     int x;
 
     for (x = 0; x < p->perslab; x++) {
+        /* 将ptr指向的内存划分成一个个的item，一共划成perslab个，并将这些item用链表前后连接 */
         do_slabs_free(ptr, 0, id);
         ptr += p->size;
     }
@@ -242,7 +248,7 @@ static void *get_page_from_global_pool(void) {
     return ret;
 }
 
-/* 给序号为id的slab class分配一个大小为1M的slab空间 */
+/* 给序号为id的slab class分配一个大小为1M的slab空间，并切分成item放入空闲链表 */
 static int do_slabs_newslab(const unsigned int id) {
     slabclass_t *p = &slabclass[id];
     slabclass_t *g = &slabclass[SLAB_GLOBAL_PAGE_POOL];
@@ -276,7 +282,7 @@ static int do_slabs_newslab(const unsigned int id) {
     memset(ptr, 0, (size_t)len);
     split_slab_page_into_freelist(ptr, id);
 
-    p->slab_list[p->slabs++] = ptr;
+    p->slab_list[p->slabs++] = ptr;     // 将分配的slab内存交给slab_list管理
     MEMCACHED_SLABS_SLABCLASS_ALLOCATE(id);
 
     return 1;
@@ -304,7 +310,7 @@ static void *do_slabs_alloc(const size_t size, unsigned int id, uint64_t *total_
     /* fail unless we have space at the end of a recently allocated page,
        we have something on our freelist, or we could allocate a new page */
     if (p->sl_curr == 0 && flags != SLABS_ALLOC_NO_NEWPAGE) {
-        do_slabs_newslab(id);
+        do_slabs_newslab(id);   // slab class没有空闲的item了，需要分配新的slab
     }
 
     if (p->sl_curr != 0) {
@@ -387,6 +393,9 @@ static void do_slabs_free_chunked(item *it, const size_t size) {
 /*
  * 把ptr指向的item放到对应的slab class的空闲链表中
  * 如果ptr指向一个chunk链表，则链表中所有的chunk都要归还到各自的slab class中
+ * 这个函数有两处被调用:
+ *   1. 工作线程释放item时被调用
+ *   2. 新申请了一块slab内存时
  */
 static void do_slabs_free(void *ptr, const size_t size, unsigned int id) {
     slabclass_t *p;
@@ -554,6 +563,7 @@ static void do_slabs_stats(ADD_STAT add_stats, void *c) {
     add_stats(NULL, 0, NULL, 0, c);
 }
 
+/* 如果之前有预分配内存，则从mem_current获取内存，否则调用malloc获取内存 */
 static void *memory_allocate(size_t size) {
     void *ret;
 

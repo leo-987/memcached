@@ -1917,7 +1917,7 @@ static void process_bin_stat(conn *c) {
 static void bin_read_key(conn *c, enum bin_substates next_substate, int extra) {
     assert(c);
     c->substate = next_substate;
-    c->rlbytes = c->keylen + extra;
+    c->rlbytes = c->keylen + extra; // 接下来要从socket读这么多字节的数据
 
     /* Ok... do we have room for the extras and the key in the input buffer? */
     /* 给keylen和extra在rbuf中留出空间 */
@@ -2893,7 +2893,7 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
                 STORAGE_delete(c->thread->storage, old_it);
                 item_replace(old_it, it, hv);
             } else {
-                do_item_link(it, hv);
+                do_item_link(it, hv);   // 将item插入到哈希表和LRU链表
             }
 
             c->cas = ITEM_get_cas(it);
@@ -5518,7 +5518,7 @@ static void drive_machine(conn *c) {
 
             if (!c->item || (((item *)c->item)->it_flags & ITEM_CHUNKED) == 0) {
                 /* first check if we have leftovers in the conn_read buffer */
-                /* 这里没太看懂 */
+                /* 本来要读rbytes长度的数据，发现缓冲区中有了，所以就少读已有的部分 */
                 if (c->rbytes > 0) {
                     int tocopy = c->rbytes > c->rlbytes ? c->rlbytes : c->rbytes;
                     if (c->ritem != c->rcurr) {

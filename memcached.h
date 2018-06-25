@@ -354,7 +354,7 @@ struct stats_state {
  * Globally accessible settings as derived from the commandline.
  */
 struct settings {
-    size_t maxbytes;
+    size_t maxbytes;    /* 整个memcached能够分配的内存大小，默认64MB */
     int maxconns;
     int port;
     int udpport;
@@ -434,7 +434,7 @@ extern struct settings settings;
 #define ITEM_CAS 2      // 该item使用CAS
 
 /* temp */
-#define ITEM_SLABBED 4  // 未存放item
+#define ITEM_SLABBED 4  // 在slab中未被分配出去
 
 /* Item was fetched at least once in its lifetime */
 #define ITEM_FETCHED 8
