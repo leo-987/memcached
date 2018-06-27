@@ -187,7 +187,7 @@ static size_t item_make_header(const uint8_t nkey, const unsigned int flags, con
 
 /*
  * 从序号为id的slab class的free list中取出一块空闲的chunk
- * 如果没有足够的空闲chunk，则slab class需要分配新的slab
+ * 如果没有足够的空闲chunk，则从LRU队列中回收老的item空间，或者由slab class分配新的slab空间
  */
 item *do_item_alloc_pull(const size_t ntotal, const unsigned int id) {
     item *it = NULL;
@@ -276,11 +276,13 @@ item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
     if (nbytes < 2)
         return 0;
 
+    // 计算这个item需要的总空间大小
     size_t ntotal = item_make_header(nkey + 1, flags, nbytes, suffix, &nsuffix);
     if (settings.use_cas) {
         ntotal += sizeof(uint64_t);
     }
 
+    // 根据大小计算属于哪个slab class
     unsigned int id = slabs_clsid(ntotal);
     unsigned int hdr_id = 0;
     if (id == 0)
@@ -338,7 +340,7 @@ item *do_item_alloc(char *key, const size_t nkey, const unsigned int flags,
     it->it_flags |= settings.use_cas ? ITEM_CAS : 0;
     it->nkey = nkey;
     it->nbytes = nbytes;
-    memcpy(ITEM_key(it), key, nkey);
+    memcpy(ITEM_key(it), key, nkey);    // 把key存放到item->key中
     it->exptime = exptime;
     if (settings.inline_ascii_response) {
         memcpy(ITEM_suffix(it), suffix, (size_t)nsuffix);
@@ -505,6 +507,7 @@ int do_item_link(item *it, const uint32_t hv) {
 /*
  * 1. 把item从哈希表中删除
  * 2. 把item从LRU链表中删除
+ * 3. 把item放回对应的slab class的空闲链表
  */
 void do_item_unlink(item *it, const uint32_t hv) {
     MEMCACHED_ITEM_UNLINK(ITEM_key(it), it->nkey, it->nbytes);

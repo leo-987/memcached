@@ -176,6 +176,7 @@ int assoc_insert(item *it, const uint32_t hv) {
     return 1;
 }
 
+/* 将key对应的item从哈希表中删除 */
 void assoc_delete(const char *key, const size_t nkey, const uint32_t hv) {
     item **before = _hashitem_before(key, nkey, hv);
 

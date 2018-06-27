@@ -289,7 +289,9 @@ static int do_slabs_newslab(const unsigned int id) {
 }
 
 /*@null@*/
-/* 从序号为id的slab class的free list中取出一块空闲的chunk */
+/* 从序号为id的slab class的free list中取出一块空闲的item
+ * 如果没有空闲item，则需要给这个slab class分配一个1MB的slab空间
+ */
 static void *do_slabs_alloc(const size_t size, unsigned int id, uint64_t *total_bytes,
         unsigned int flags) {
     slabclass_t *p;

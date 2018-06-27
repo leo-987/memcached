@@ -112,7 +112,7 @@
 #define ITEM_suffix(item) ((char*) &((item)->data) + (item)->nkey + 1 \
          + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
 
-/* 返回item value header指针 */
+/* 返回item value指针 */
 #define ITEM_data(item) ((char*) &((item)->data) + (item)->nkey + 1 \
          + (item)->nsuffix \
          + (((item)->it_flags & ITEM_CAS) ? sizeof(uint64_t) : 0))
@@ -441,7 +441,7 @@ extern struct settings settings;
 /* Appended on fetch, removed on LRU shuffling */
 #define ITEM_ACTIVE 16
 /* If an item's storage are chained chunks. */
-#define ITEM_CHUNKED 32
+#define ITEM_CHUNKED 32 // 表示这个item是由多个chunk串起来的
 #define ITEM_CHUNK 64
 #ifdef EXTSTORE
 /* ITEM_data bulk is external to item */
@@ -470,7 +470,7 @@ typedef struct _stritem {
     union {
         uint64_t cas;
         char end;
-    } data[];   /* 柔性数组 */
+    } data[];   /* 柔性数组，数据在结构体之后连续存放 */
     /* if it_flags & ITEM_CAS we have 8 bytes CAS */
     /* then null-terminated key */
     /* then " flags length\r\n" (no terminating null) */
@@ -501,6 +501,7 @@ typedef struct {
 } crawler;
 
 /* Header when an item is actually a chunk of another item. */
+/* data之前的成员只有ITEM_CHUNKED状态时才会用到 */
 typedef struct _strchunk {
     struct _strchunk *next;     /* points within its own chain. */
     struct _strchunk *prev;     /* can potentially point to the head. */

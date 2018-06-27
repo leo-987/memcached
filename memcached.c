@@ -1498,6 +1498,7 @@ static void complete_update_bin(conn *c) {
         *(ITEM_data(it) + it->nbytes - 2) = '\r';
         *(ITEM_data(it) + it->nbytes - 1) = '\n';
     } else {
+        /* 在最后一个chunk中放入换行符 */
         assert(c->ritem);
         item_chunk *ch = (item_chunk *) c->ritem;
         if (ch->size == ch->used)
@@ -2470,7 +2471,7 @@ static void process_bin_update(conn *c) {
 
     c->item = it;                       // item现在指向刚分配item的起始位置
     c->ritem = ITEM_data(it);           // ritem现在指向刚分配item的value部分
-    c->rlbytes = vlen;
+    c->rlbytes = vlen;                  // 接下来读取value len的长度
     conn_set_state(c, conn_nread);      // 下一个循环开始从socket读取value
     c->substate = bin_read_set_value;   // 下次进入complete_nread_binary函数走解析value的分支
 }
@@ -2891,7 +2892,7 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
         if (stored == NOT_STORED && failed_alloc == 0) {
             if (old_it != NULL) {
                 STORAGE_delete(c->thread->storage, old_it);
-                item_replace(old_it, it, hv);
+                item_replace(old_it, it, hv);   // 将老的item归还，将新的item插入LRU链表和哈希表
             } else {
                 do_item_link(it, hv);   // 将item插入到哈希表和LRU链表
             }
@@ -2905,7 +2906,7 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
     if (old_it != NULL)
         do_item_remove(old_it);         /* release our reference */
     if (new_it != NULL)
-        do_item_remove(new_it);
+        do_item_remove(new_it);         // new_it指向的item引用计数部位0，所以不会被释放
 
     if (stored == STORED) {
         c->cas = ITEM_get_cas(it);
@@ -5518,7 +5519,7 @@ static void drive_machine(conn *c) {
 
             if (!c->item || (((item *)c->item)->it_flags & ITEM_CHUNKED) == 0) {
                 /* first check if we have leftovers in the conn_read buffer */
-                /* 本来要读rbytes长度的数据，发现缓冲区中有了，所以就少读已有的部分 */
+                /* 本来要读rbytes长度的数据，发现缓冲区中有了，所以就减去已有的部分 */
                 if (c->rbytes > 0) {
                     int tocopy = c->rbytes > c->rlbytes ? c->rlbytes : c->rbytes;
                     if (c->ritem != c->rcurr) {
