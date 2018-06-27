@@ -334,7 +334,7 @@ struct stats {
  * Ordered for some cache line locality for commonly updated counters.
  */
 struct stats_state {
-    uint64_t      curr_items;
+    uint64_t      curr_items;       /* 当前哈希表中item个数 */
     uint64_t      curr_bytes;
     uint64_t      curr_conns;
     uint64_t      hash_bytes;       /* size used for hash tables */
@@ -388,7 +388,7 @@ struct settings {
     int slab_automove;     /* Whether or not to automatically move slabs */
     double slab_automove_ratio; /* youngest must be within pct of oldest */
     unsigned int slab_automove_window; /* window mover for algorithm */
-    int hashpower_init;     /* Starting hash power level */
+    int hashpower_init;     /* Starting hash power level，初始化哈希表时hash桶的长度 */
     bool shutdown_command; /* allow shutdown command */
     int tail_repair_time;   /* LRU tail refcount leak repair time */
     bool flush_enabled;     /* flush_all enabled */
@@ -604,7 +604,7 @@ struct conn {
     struct msghdr *msglist; /* 连接建立时初始化 */
     int    msgsize;   /* number of elements allocated in msglist[] */
     int    msgused;   /* number of elements used in msglist[] */
-    int    msgcurr;   /* element in msglist[] being transmitted now */
+    int    msgcurr;   /* element in msglist[] being transmitted now，指向当前要发送的msghdr */
     int    msgbytes;  /* number of bytes in current msg */
 
     item   **ilist;   /* list of items to write out */

@@ -112,7 +112,6 @@ void slabs_init(const size_t limit, const double factor, const bool prealloc, co
     if (prealloc) {
         /* Allocate everything in a big chunk with malloc */
         /*
-         * 这一堆东西在哪里用？
          * memory_allocate函数中用于分配缓存
          */
         mem_base = malloc(mem_limit);

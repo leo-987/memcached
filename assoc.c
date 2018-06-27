@@ -26,7 +26,7 @@
 #include <pthread.h>
 
 static pthread_cond_t maintenance_cond = PTHREAD_COND_INITIALIZER;
-static pthread_mutex_t maintenance_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t maintenance_lock = PTHREAD_MUTEX_INITIALIZER;    // 哈希表全局锁
 
 typedef  unsigned long  int  ub4;   /* unsigned 4-byte quantities */
 typedef  unsigned       char ub1;   /* unsigned 1-byte quantities */
@@ -35,7 +35,7 @@ typedef  unsigned       char ub1;   /* unsigned 1-byte quantities */
 unsigned int hashpower = HASHPOWER_DEFAULT;
 
 #define hashsize(n) ((ub4)1<<(n))
-#define hashmask(n) (hashsize(n)-1)
+#define hashmask(n) (hashsize(n)-1) // hv & hashmask(n)相当于对hashsize(n)取模，但性能比取模运算更好
 
 /* Main hash table. This is where we look except during expansion. */
 /* hash桶 */
@@ -55,7 +55,7 @@ static bool started_expanding = false;
  * During expansion we migrate values with bucket granularity; this is how
  * far we've gotten so far. Ranges from 0 .. hashsize(hashpower - 1) - 1.
  */
-static unsigned int expand_bucket = 0;
+static unsigned int expand_bucket = 0;  // 已迁移桶的个数
 
 void assoc_init(const int hashtable_init) {
     if (hashtable_init) {
@@ -148,6 +148,7 @@ void assoc_start_expand(uint64_t curr_items) {
     if (started_expanding)
         return;
 
+    /* 如果哈希表中的item个数大于哈希桶个数的1.5倍，则需要扩容 */
     if (curr_items > (hashsize(hashpower) * 3) / 2 &&
           hashpower < HASHPOWER_MAX) {
         started_expanding = true;
@@ -156,7 +157,9 @@ void assoc_start_expand(uint64_t curr_items) {
 }
 
 /* Note: this isn't an assoc_update.  The key must not already exist to call this */
-/* 把item插入hash值为hv的hash桶中冲突链表的头部 */
+/* 把item插入hash值为hv的hash桶中冲突链表的头部
+ * 当item对应在旧表中的桶还没被迁移到新表的话，就插入到旧表，否则插入到新表
+ */
 int assoc_insert(item *it, const uint32_t hv) {
     unsigned int oldbucket;
 
@@ -200,8 +203,9 @@ void assoc_delete(const char *key, const size_t nkey, const uint32_t hv) {
 static volatile int do_run_maintenance_thread = 1;
 
 #define DEFAULT_HASH_BULK_MOVE 1
-int hash_bulk_move = DEFAULT_HASH_BULK_MOVE;
+int hash_bulk_move = DEFAULT_HASH_BULK_MOVE;    // 一次循环迁移桶的个数
 
+/* 哈希表迁移线程 */
 static void *assoc_maintenance_thread(void *arg) {
 
     mutex_lock(&maintenance_lock);
@@ -218,10 +222,13 @@ static void *assoc_maintenance_thread(void *arg) {
              * is the lowest N bits of the hv, and the bucket of item_locks is
              *  also the lowest M bits of hv, and N is greater than M.
              *  So we can process expanding with only one item_lock. cool! */
+
+            /* 为了防止迁移过程太久，阻碍工作线程进行增删改查，每次上锁只迁移一个桶，逐步完成迁移过程 */
             if ((item_lock = item_trylock(expand_bucket))) {
                     for (it = old_hashtable[expand_bucket]; NULL != it; it = next) {
                         next = it->h_next;
-                        bucket = hash(ITEM_key(it), it->nkey) & hashmask(hashpower);
+                        bucket = hash(ITEM_key(it), it->nkey) & hashmask(hashpower);    // 新hv对应的桶
+                        /* 将item插入新的哈希表中 */
                         it->h_next = primary_hashtable[bucket];
                         primary_hashtable[bucket] = it;
                     }
@@ -229,7 +236,7 @@ static void *assoc_maintenance_thread(void *arg) {
                     old_hashtable[expand_bucket] = NULL;
 
                     expand_bucket++;
-                    if (expand_bucket == hashsize(hashpower - 1)) {
+                    if (expand_bucket == hashsize(hashpower - 1)) { // 迁移完毕
                         expanding = false;
                         free(old_hashtable);
                         STATS_LOCK();

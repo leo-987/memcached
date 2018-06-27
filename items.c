@@ -481,6 +481,7 @@ static void item_unlink_q(item *it) {
 /*
  * 1. 将item放到哈希表中
  * 2. 将item放到LRU链表中
+ * 3. 将item引用计数+1
  */
 int do_item_link(item *it, const uint32_t hv) {
     MEMCACHED_ITEM_LINK(ITEM_key(it), it->nkey, it->nbytes);

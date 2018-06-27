@@ -282,6 +282,7 @@ static void settings_init(void) {
  * Adds a message header to a connection.
  *
  * Returns 0 on success, -1 on out-of-memory.
+ * 从conn->msglist链表中取出一条空闲的msghdr
  */
 static int add_msghdr(conn *c)
 {
@@ -954,6 +955,7 @@ static int ensure_iov_space(conn *c) {
  * Note: This is a hot path for at least ASCII protocol. While there is
  * redundant code in splitting TCP/UDP handling, any reduction in steps has a
  * large impact for TCP connections.
+ * 把buf挂到连接内某个msg_iov上
  */
 
 static int add_iov(conn *c, const void *buf, int len) {
@@ -5229,7 +5231,7 @@ static enum transmit_result transmit(conn *c) {
         ssize_t res;
         struct msghdr *m = &c->msglist[c->msgcurr];
 
-        res = sendmsg(c->sfd, m, 0);
+        res = sendmsg(c->sfd, m, 0);    // 发送
         if (res > 0) {
             pthread_mutex_lock(&c->thread->stats.mutex);
             c->thread->stats.bytes_written += res;
@@ -5237,6 +5239,7 @@ static enum transmit_result transmit(conn *c) {
 
             /* We've written some of the data. Remove the completed
                iovec entries from the list of pending writes. */
+            /* 发送了多个iovec buffer，则移动到最后一个 */
             while (m->msg_iovlen > 0 && res >= m->msg_iov->iov_len) {
                 res -= m->msg_iov->iov_len;
                 m->msg_iovlen--;
@@ -5245,6 +5248,7 @@ static enum transmit_result transmit(conn *c) {
 
             /* Might have written just part of the last iovec entry;
                adjust it so the next write will do the rest. */
+            /* 最后一个iovec buffer只发送了一部分，移动到未发送部分开头 */
             if (res > 0) {
                 m->msg_iov->iov_base = (caddr_t)m->msg_iov->iov_base + res;
                 m->msg_iov->iov_len -= res;
@@ -7608,7 +7612,7 @@ int main (int argc, char **argv) {
     /* initialize other stuff */
     logger_init();
     stats_init();
-    assoc_init(settings.hashpower_init);
+    assoc_init(settings.hashpower_init);    // 初始化哈希表
     conn_init();
     slabs_init(settings.maxbytes, settings.factor, preallocate,
             use_slab_sizes ? slab_sizes : NULL);
