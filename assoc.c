@@ -126,7 +126,7 @@ static item** _hashitem_before (const char *key, const size_t nkey, const uint32
 static void assoc_expand(void) {
     old_hashtable = primary_hashtable;
 
-    primary_hashtable = calloc(hashsize(hashpower + 1), sizeof(void *));
+    primary_hashtable = calloc(hashsize(hashpower + 1), sizeof(void *));    // 桶数量翻倍
     if (primary_hashtable) {
         if (settings.verbose > 1)
             fprintf(stderr, "Hash table expansion starting\n");
@@ -144,6 +144,7 @@ static void assoc_expand(void) {
     }
 }
 
+/* 定时被调用 */
 void assoc_start_expand(uint64_t curr_items) {
     if (started_expanding)
         return;
@@ -168,9 +169,11 @@ int assoc_insert(item *it, const uint32_t hv) {
     if (expanding &&
         (oldbucket = (hv & hashmask(hashpower - 1))) >= expand_bucket)
     {
+        // 插入到旧表
         it->h_next = old_hashtable[oldbucket];
         old_hashtable[oldbucket] = it;
     } else {
+        // 插入到新表
         it->h_next = primary_hashtable[hv & hashmask(hashpower)];
         primary_hashtable[hv & hashmask(hashpower)] = it;
     }
@@ -223,7 +226,7 @@ static void *assoc_maintenance_thread(void *arg) {
              *  also the lowest M bits of hv, and N is greater than M.
              *  So we can process expanding with only one item_lock. cool! */
 
-            /* 为了防止迁移过程太久，阻碍工作线程进行增删改查，每次上锁只迁移一个桶，逐步完成迁移过程 */
+            /* 为了防止迁移过程太久，阻碍工作线程进行增删改查，每次上锁只迁移一个桶，逐步完成迁移过程，上锁成功才会进行迁移 */
             if ((item_lock = item_trylock(expand_bucket))) {
                     for (it = old_hashtable[expand_bucket]; NULL != it; it = next) {
                         next = it->h_next;

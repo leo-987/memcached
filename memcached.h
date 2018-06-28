@@ -77,7 +77,7 @@
  * in this many seconds. That saves us from churning on frequently-accessed
  * items.
  */
-#define ITEM_UPDATE_INTERVAL 60
+#define ITEM_UPDATE_INTERVAL 60 // 防止item在LRU队列中频繁移动
 
 /* unistd.h is here */
 #if HAVE_UNISTD_H
@@ -335,7 +335,7 @@ struct stats {
  */
 struct stats_state {
     uint64_t      curr_items;       /* 当前哈希表中item个数 */
-    uint64_t      curr_bytes;
+    uint64_t      curr_bytes;       /* 当前分配出去的item字节数 */
     uint64_t      curr_conns;
     uint64_t      hash_bytes;       /* size used for hash tables */
     unsigned int  conn_structs;
@@ -390,7 +390,7 @@ struct settings {
     unsigned int slab_automove_window; /* window mover for algorithm */
     int hashpower_init;     /* Starting hash power level，初始化哈希表时hash桶的长度 */
     bool shutdown_command; /* allow shutdown command */
-    int tail_repair_time;   /* LRU tail refcount leak repair time */
+    int tail_repair_time;   /* LRU tail refcount leak repair time，防止某个work线程崩溃而长期占用item，过期则将item引用计数复位到1 */
     bool flush_enabled;     /* flush_all enabled */
     bool dump_enabled;      /* whether cachedump/metadump commands work */
     char *hash_algorithm;     /* Hash algorithm in use */
@@ -463,7 +463,7 @@ typedef struct _stritem {
     unsigned short  refcount;
     uint8_t         nsuffix;    /* length of flags-and-length string */
     uint8_t         it_flags;   /* ITEM_* above */
-    uint8_t         slabs_clsid;/* which slab class we're in */
+    uint8_t         slabs_clsid;/* which slab class we're in，这个变量低六位表示对应的LRU队列的冷热程度，剩余的其它位才是真正的slab class id */
     uint8_t         nkey;       /* key length, w/terminating null and padding */
     /* this odd type prevents type-punning issues when we do
      * the little shuffle to save space when not using CAS. */

@@ -99,6 +99,7 @@ void item_lock(uint32_t hv) {
     mutex_lock(&item_locks[hv & hashmask(item_lock_hashpower)]);
 }
 
+/* 根据hv获得一把哈希桶锁，然后尝试上锁 */
 void *item_trylock(uint32_t hv) {
     pthread_mutex_t *lock = &item_locks[hv & hashmask(item_lock_hashpower)];
     if (pthread_mutex_trylock(lock) == 0) {
@@ -554,13 +555,17 @@ item *item_alloc(char *key, size_t nkey, int flags, rel_time_t exptime, int nbyt
 /*
  * Returns an item if it hasn't been marked as expired,
  * lazy-expiring as needed.
+ * 1. work线程加锁
+ * 2. 从哈希表中获取item
+ * 3. 增加引用计数
+ * 4. work线程释放锁
  */
 item *item_get(const char *key, const size_t nkey, conn *c, const bool do_update) {
     item *it;
     uint32_t hv;
     hv = hash(key, nkey);
     item_lock(hv);
-    it = do_item_get(key, nkey, hv, c, do_update);
+    it = do_item_get(key, nkey, hv, c, do_update);  // in item_get
     item_unlock(hv);
     return it;
 }
@@ -592,6 +597,7 @@ int item_link(item *item) {
 /*
  * Decrements the reference count on an item and adds it to the freelist if
  * needed.
+ * item_get函数的反操作
  */
 void item_remove(item *item) {
     uint32_t hv;
@@ -750,7 +756,7 @@ void memcached_thread_init(int nthreads, void *arg) {
     cqi_freelist = NULL;
 
     /* Want a wide lock table, but don't waste memory */
-    /* 理想状态下应该是每个hash桶一把锁，这里根据线程数确定hash桶锁的个数，估计是在内存与性能建寻求平衡 */
+    /* 理想状态下应该是每个hash桶一把锁，这里根据线程数确定hash桶锁的个数，多个桶共享一把锁，是在内存与性能建寻求平衡 */
     if (nthreads < 3) {
         power = 10;
     } else if (nthreads < 4) {

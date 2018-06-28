@@ -51,9 +51,10 @@ typedef struct {
     rel_time_t evicted_time;
 } itemstats_t;
 
+/* 每个class slab有一个LRU队列 */
 static item *heads[LARGEST_ID];             // 指向每一个LRU队列头
 static item *tails[LARGEST_ID];             // 指向每一个LRU队列尾
-static itemstats_t itemstats[LARGEST_ID];
+static itemstats_t itemstats[LARGEST_ID];   // LRU队列相关统计
 static unsigned int sizes[LARGEST_ID];      // 每一个LRU队列有多少个item
 static uint64_t sizes_bytes[LARGEST_ID];    // 每一个LRU队列占用的字节数
 static unsigned int *stats_sizes_hist = NULL;
@@ -398,7 +399,7 @@ bool item_size_ok(const size_t nkey, const int flags, const int nbytes) {
     return slabs_clsid(ntotal) != 0;
 }
 
-/* 将it插入到对应的LRU队列中 */
+/* 将item插入到对应的LRU队列的头部 */
 static void do_item_link_q(item *it) { /* item is the new head */
     item **head, **tail;
     assert((it->it_flags & ITEM_SLABBED) == 0);
@@ -497,9 +498,9 @@ int do_item_link(item *it, const uint32_t hv) {
 
     /* Allocate a new CAS ID on link. */
     ITEM_set_cas(it, (settings.use_cas) ? get_cas_id() : 0);
-    assoc_insert(it, hv);
-    item_link_q(it);
-    refcount_incr(it);
+    assoc_insert(it, hv);   // 将item插入哈希表
+    item_link_q(it);        // 将item插入LRU链表
+    refcount_incr(it);      // 引用计数加一，如果没有work线程引用这个item，那么引用计数就是1
     item_stats_sizes_add(it);
 
     return 1;
@@ -521,7 +522,7 @@ void do_item_unlink(item *it, const uint32_t hv) {
         item_stats_sizes_remove(it);
         assoc_delete(ITEM_key(it), it->nkey, hv);
         item_unlink_q(it);
-        do_item_remove(it);
+        do_item_remove(it); // 归还item到slab
     }
 }
 
@@ -541,12 +542,13 @@ void do_item_unlink_nolock(item *it, const uint32_t hv) {
     }
 }
 
+/* 向slba归还这个item */
 void do_item_remove(item *it) {
     MEMCACHED_ITEM_REMOVE(ITEM_key(it), it->nkey, it->nbytes);
     assert((it->it_flags & ITEM_SLABBED) == 0);
     assert(it->refcount > 0);
 
-    if (refcount_decr(it) == 0) {
+    if (refcount_decr(it) == 0) {   // 引用计数等于0的时候归还
         item_free(it);
     }
 }
@@ -572,6 +574,9 @@ void do_item_update(item *it) {
     MEMCACHED_ITEM_UPDATE(ITEM_key(it), it->nkey, it->nbytes);
 
     /* Hits to COLD_LRU immediately move to WARM. */
+    /* 如果一个item频繁被GET，将这个item从LRU比较靠前的位置移动到最前面，这种操作意义不大，
+     * 因此这里有一个LRU冷热程度和更新时间的判断，如果是较热的LRU或上次更新间隔很短，那么这次就不会调整item在LRU中的位置
+     */
     if (settings.lru_segmented) {
         assert((it->it_flags & ITEM_SLABBED) == 0);
         if ((it->it_flags & ITEM_LINKED) != 0) {
@@ -579,7 +584,7 @@ void do_item_update(item *it) {
                 it->time = current_time;
                 item_unlink_q(it);
                 it->slabs_clsid = ITEM_clsid(it);
-                it->slabs_clsid |= WARM_LRU;
+                it->slabs_clsid |= WARM_LRU;    // 让这条LRU队列变热
                 it->it_flags &= ~ITEM_ACTIVE;
                 item_link_q_warm(it);
             } else if (it->time < current_time - ITEM_UPDATE_INTERVAL) {
