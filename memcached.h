@@ -381,10 +381,10 @@ struct settings {
     int slab_page_size;     /* Slab's page units. */
     bool sasl;              /* SASL on/off */
     bool maxconns_fast;     /* Whether or not to early close connections */
-    bool lru_crawler;        /* Whether or not to enable the autocrawler thread，是否启用LRU爬虫线程 */
+    bool lru_crawler;        /* Whether or not to enable the autocrawler thread，是否已启用LRU爬虫线程 */
     bool lru_maintainer_thread; /* LRU maintainer background thread */
     bool lru_segmented;     /* Use split or flat LRU's */
-    bool slab_reassign;     /* Whether or not slab reassignment is allowed */
+    bool slab_reassign;     /* Whether or not slab reassignment is allowed，是否启用内存页重分配，默认启用 */
     int slab_automove;     /* Whether or not to automatically move slabs */
     double slab_automove_ratio; /* youngest must be within pct of oldest */
     unsigned int slab_automove_window; /* window mover for algorithm */
@@ -659,12 +659,12 @@ extern conn **conns;
 extern volatile rel_time_t current_time;
 
 /* TODO: Move to slabs.h? */
-extern volatile int slab_rebalance_signal;
+extern volatile int slab_rebalance_signal;  // 如果需要进行内存页重新分配，则把它置为1，如果要开始移动slab，则设置为2
 
 struct slab_rebalance {
-    void *slab_start;
-    void *slab_end;
-    void *slab_pos;
+    void *slab_start;   // 需要重分配的slab起始位置
+    void *slab_end;     // 需要重分配的slab结束为止
+    void *slab_pos;     // 当前正在清理的item位置
     int s_clsid;
     int d_clsid;
     uint32_t busy_items;

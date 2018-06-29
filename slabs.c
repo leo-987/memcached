@@ -720,6 +720,7 @@ static int slab_rebalance_start(void) {
 
     s_cls = &slabclass[slab_rebal.s_clsid];
 
+    /* 如果dst slab calss增加slab都失败，则无法为它进行slab重分配了 */
     if (!grow_slab_list(slab_rebal.d_clsid)) {
         no_go = -1;
     }
@@ -735,7 +736,7 @@ static int slab_rebalance_start(void) {
     /* Always kill the first available slab page as it is most likely to
      * contain the oldest items
      */
-    slab_rebal.slab_start = s_cls->slab_list[0];
+    slab_rebal.slab_start = s_cls->slab_list[0];    // 默认将第一个slab分配给其它slab class
     slab_rebal.slab_end   = (char *)slab_rebal.slab_start +
         (s_cls->size * s_cls->perslab);
     slab_rebal.slab_pos   = slab_rebal.slab_start;
@@ -828,6 +829,7 @@ enum move_status {
  * recheck everything.
  * This may not be safe on all platforms; If not, slabs_alloc() will need to
  * seed the item key while holding slabs_lock.
+ * 将选中的src slab中的item清空并解除相关链表
  */
 static int slab_rebalance_move(void) {
     slabclass_t *s_cls;
@@ -842,6 +844,7 @@ static int slab_rebalance_move(void) {
 
     s_cls = &slabclass[slab_rebal.s_clsid];
 
+    /* 循环只进行一次，每次只处理要移动slab上的一个item */
     for (x = 0; x < slab_bulk_check; x++) {
         hv = 0;
         hold_lock = NULL;
@@ -863,7 +866,7 @@ static int slab_rebalance_move(void) {
          */
         if (it->it_flags != (ITEM_SLABBED|ITEM_FETCHED)) {
             /* ITEM_SLABBED can only be added/removed under the slabs_lock */
-            if (it->it_flags & ITEM_SLABBED) {
+            if (it->it_flags & ITEM_SLABBED) {  // item未被使用，将它从slab class空闲链表中删除
                 assert(ch == NULL);
                 slab_rebalance_cut_free(s_cls, it);
                 status = MOVE_FROM_SLAB;
@@ -890,7 +893,7 @@ static int slab_rebalance_move(void) {
                              * yet. Let it bleed off on its own and try again later */
                             status = MOVE_BUSY;
                         }
-                    } else if (refcount > 2 && is_linked) {
+                    } else if (refcount > 2 && is_linked) { // 有work线程正在使用这个item
                         // TODO: Mark items for delete/rescue and process
                         // outside of the main loop.
                         if (slab_rebal.busy_loops > SLAB_MOVE_MAX_LOOPS) {
@@ -1068,6 +1071,7 @@ static int slab_rebalance_move(void) {
     return was_busy;
 }
 
+/* 实际移动slab */
 static void slab_rebalance_finish(void) {
     slabclass_t *s_cls;
     slabclass_t *d_cls;
@@ -1106,7 +1110,7 @@ static void slab_rebalance_finish(void) {
         s_cls->slab_list[x] = s_cls->slab_list[x+1];
     }
 
-    d_cls->slab_list[d_cls->slabs++] = slab_rebal.slab_start;
+    d_cls->slab_list[d_cls->slabs++] = slab_rebal.slab_start;   // 移动到新链表的最后
     /* Don't need to split the page into chunks if we're just storing it */
     if (slab_rebal.d_clsid > SLAB_GLOBAL_PAGE_POOL) {
         memset(slab_rebal.slab_start, 0, (size_t)settings.slab_page_size);
@@ -1176,7 +1180,7 @@ static void *slab_rebalance_thread(void *arg) {
         }
 
         if (slab_rebal.done) {
-            slab_rebalance_finish();
+            slab_rebalance_finish();    // 已处理完要移动slab中的所有item，开始移动slab
         } else if (was_busy) {
             /* Stuck waiting for some items to unlock, so slow down a bit
              * to give them a chance to free up */
@@ -1194,6 +1198,7 @@ static void *slab_rebalance_thread(void *arg) {
 /* Iterate at most once through the slab classes and pick a "random" source.
  * I like this better than calling rand() since rand() is slow enough that we
  * can just check all of the classes once instead.
+ * 选出一个slab个数大于1的slab class id
  */
 static int slabs_reassign_pick_any(int dst) {
     static int cur = POWER_SMALLEST - 1;
@@ -1211,15 +1216,17 @@ static int slabs_reassign_pick_any(int dst) {
     return -1;
 }
 
+/* 唤醒rebalance线程 */
 static enum reassign_result_type do_slabs_reassign(int src, int dst) {
     bool nospare = false;
     if (slab_rebalance_signal != 0)
         return REASSIGN_RUNNING;
 
-    if (src == dst)
+    if (src == dst) // src和dst不能相同
         return REASSIGN_SRC_DST_SAME;
 
     /* Special indicator to choose ourselves. */
+    /* 如果调用函数没有指定src，那么随机选择一个slab class */
     if (src == -1) {
         src = slabs_reassign_pick_any(dst);
         /* TODO: If we end up back at -1, return a new error type */
@@ -1240,7 +1247,7 @@ static enum reassign_result_type do_slabs_reassign(int src, int dst) {
     slab_rebal.d_clsid = dst;
 
     slab_rebalance_signal = 1;
-    pthread_cond_signal(&slab_rebalance_cond);
+    pthread_cond_signal(&slab_rebalance_cond);  // 唤醒重分配线程slab_rebalance_thread
 
     return REASSIGN_OK;
 }

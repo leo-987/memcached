@@ -69,6 +69,7 @@ static void window_sum(struct window_data *wd, struct window_data *w, uint32_t s
 
 // TODO: if oldest is dirty, find next oldest.
 // still need to base ratio off of absolute age
+// 从itemstats数组收集slab class的统计信息，根据这些信息确定哪个slab class内存不足，哪些内存过剩
 void slab_automove_run(void *arg, int *src, int *dst) {
     slab_automove *a = (slab_automove *)arg;
     int n;
@@ -82,6 +83,7 @@ void slab_automove_run(void *arg, int *src, int *dst) {
     *dst = -1;
 
     // fill after structs
+    // 收集slab class的统计信息
     fill_item_stats_automove(a->iam_after);
     fill_slab_stats_automove(a->sam_after);
     a->window_cur++;

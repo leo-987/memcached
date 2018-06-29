@@ -4748,7 +4748,7 @@ static void process_command(conn *c, char *command) {
                 return;
             }
 
-            rv = slabs_reassign(src, dst);
+            rv = slabs_reassign(src, dst);  // 接收到客户端slabs reassign命令，执行内存页重分配
             switch (rv) {
             case REASSIGN_OK:
                 out_string(c, "OK");
@@ -7686,6 +7686,7 @@ int main (int argc, char **argv) {
         return 1;
     }
 
+    /* 内存页重分配系统 */
     if (settings.slab_reassign &&
         start_slab_maintenance_thread() == -1) {
         exit(EXIT_FAILURE);

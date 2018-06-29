@@ -29,7 +29,7 @@ static unsigned int lru_type_map[4] = {HOT_LRU, WARM_LRU, COLD_LRU, TEMP_LRU};
 
 #define LARGEST_ID POWER_LARGEST
 typedef struct {
-    uint64_t evicted;
+    uint64_t evicted;   /* item在LRU中被剔除的次数 */
     uint64_t evicted_nonzero;
     uint64_t reclaimed;
     uint64_t outofmemory;
@@ -54,7 +54,7 @@ typedef struct {
 /* 每个class slab有一个LRU队列 */
 static item *heads[LARGEST_ID];             // 指向每一个LRU队列头
 static item *tails[LARGEST_ID];             // 指向每一个LRU队列尾
-static itemstats_t itemstats[LARGEST_ID];   // LRU队列相关统计
+static itemstats_t itemstats[LARGEST_ID];   // 各个slab class的统计信息
 static unsigned int sizes[LARGEST_ID];      // 每一个LRU队列有多少个item
 static uint64_t sizes_bytes[LARGEST_ID];    // 每一个LRU队列占用的字节数
 static unsigned int *stats_sizes_hist = NULL;
@@ -1220,7 +1220,7 @@ int lru_pull_tail(const int orig_id, const int cur_lru,
                         /* Don't think we need a counter for this. It'll OOM.  */
                         break;
                     }
-                    itemstats[id].evicted++;
+                    itemstats[id].evicted++;    // 淘汰次数+1
                     itemstats[id].evicted_time = current_time - search->time;
                     if (search->exptime != 0)
                         itemstats[id].evicted_nonzero++;
@@ -1235,7 +1235,7 @@ int lru_pull_tail(const int orig_id, const int cur_lru,
                     do_item_unlink_nolock(search, hv);
                     removed++;
                     if (settings.slab_automove == 2) {
-                        slabs_reassign(-1, orig_id);
+                        slabs_reassign(-1, orig_id);    // 发现有item从LRU中淘汰，内存页重分配
                     }
                 } else if (flags & LRU_PULL_RETURN_ITEM) {
                     /* Keep a reference to this item and return it. */
@@ -1681,9 +1681,9 @@ static void *lru_maintainer_thread(void *arg) {
                 last_ratio = settings.slab_automove_ratio;
             }
             int src, dst;
-            sam->run(am, &src, &dst);
+            sam->run(am, &src, &dst);   // 调用slab_automove_run，自动检测是否需要进行内存页重新分配
             if (src != -1 && dst != -1) {
-                slabs_reassign(src, dst);
+                slabs_reassign(src, dst);   // automove确定内存页需要重分配
                 LOGGER_LOG(l, LOG_SYSEVENTS, LOGGER_SLAB_MOVE, NULL,
                         src, dst);
             }
