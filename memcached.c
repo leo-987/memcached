@@ -2533,6 +2533,7 @@ static void process_bin_append_prepend(conn *c) {
     c->substate = bin_read_set_value;
 }
 
+/* 处理FLUSH命令 */
 static void process_bin_flush(conn *c) {
     time_t exptime = 0;
     protocol_binary_request_flush* req = binary_get_request(c);

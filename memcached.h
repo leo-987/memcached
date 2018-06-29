@@ -360,7 +360,7 @@ struct settings {
     int udpport;
     char *inter;
     int verbose;
-    rel_time_t oldest_live; /* ignore existing items older than this */
+    rel_time_t oldest_live; /* ignore existing items older than this，接收到客户端FLUSH命令的时间点 */
     uint64_t oldest_cas; /* ignore existing items with CAS values lower than this */
     int evict_to_free;
     char *socketpath;   /* path to unix socket if using local socket */
@@ -381,7 +381,7 @@ struct settings {
     int slab_page_size;     /* Slab's page units. */
     bool sasl;              /* SASL on/off */
     bool maxconns_fast;     /* Whether or not to early close connections */
-    bool lru_crawler;        /* Whether or not to enable the autocrawler thread */
+    bool lru_crawler;        /* Whether or not to enable the autocrawler thread，是否启用LRU爬虫线程 */
     bool lru_maintainer_thread; /* LRU maintainer background thread */
     bool lru_segmented;     /* Use split or flat LRU's */
     bool slab_reassign;     /* Whether or not slab reassignment is allowed */
@@ -395,7 +395,7 @@ struct settings {
     bool dump_enabled;      /* whether cachedump/metadump commands work */
     char *hash_algorithm;     /* Hash algorithm in use */
     int lru_crawler_sleep;  /* Microsecond sleep between items */
-    uint32_t lru_crawler_tocrawl; /* Number of items to crawl per run */
+    uint32_t lru_crawler_tocrawl; /* Number of items to crawl per run，一条LRU队列最多清理item的个数，防止开销过大，影响work线程，执行lru_crawler tocrawl <num>命令时被设置 */
     int hot_lru_pct; /* percentage of slab space for HOT_LRU */
     int warm_lru_pct; /* percentage of slab space for WARM_LRU */
     double hot_max_factor; /* HOT tail age relative to COLD tail */
@@ -482,6 +482,7 @@ enum crawler_run_type {
     CRAWLER_AUTOEXPIRE=0, CRAWLER_EXPIRED, CRAWLER_METADUMP
 };
 
+/* 伪item，用于快速获取爬虫的位置，每个LRU队列一个伪item */
 typedef struct {
     struct _stritem *next;
     struct _stritem *prev;
@@ -491,8 +492,8 @@ typedef struct {
     int             nbytes;     /* size of data */
     unsigned short  refcount;
     uint8_t         nsuffix;    /* length of flags-and-length string */
-    uint8_t         it_flags;   /* ITEM_* above */
-    uint8_t         slabs_clsid;/* which slab class we're in */
+    uint8_t         it_flags;   /* ITEM_* above，表示对应LRU链表上是否有爬虫 */
+    uint8_t         slabs_clsid;/* which slab class we'rlru_crawler_tocrawle in */
     uint8_t         nkey;       /* key length, w/terminating null and padding */
     uint32_t        remaining;  /* Max keys to crawl per slab per invocation */
     uint64_t        reclaimed;  /* items reclaimed during this crawl. */

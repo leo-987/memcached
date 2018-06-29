@@ -126,7 +126,7 @@ int item_is_flushed(item *it) {
     uint64_t oldest_cas = settings.oldest_cas;
     if (oldest_live == 0 || oldest_live > current_time)
         return 0;
-    if ((it->time <= oldest_live)
+    if ((it->time <= oldest_live)   // 表示收到FLUSH命令的时候，这个item已经存在了，需要删除
             || (oldest_cas != 0 && cas != 0 && cas < oldest_cas)) {
         return 1;
     }
@@ -978,8 +978,9 @@ void item_stats_sizes(ADD_STAT add_stats, void *c) {
 
 /** wrapper around assoc_find which does the lazy expiration logic */
 /*
- * 根据hv和key在hash桶中找到对应的item
- * 如果是GET命令，则do_update=true，还需要把item放到LRU队列的头部，表示最近有访问
+ * 1. 根据hv和key在hash桶中找到对应的item
+ * 2. 如果是GET命令，则do_update=true，还需要把item放到LRU队列的头部，表示最近有访问
+ * 3. 检测获得的item是否过期或失效，需要被删除
  */
 item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c, const bool do_update) {
     item *it = assoc_find(key, nkey, hv);
@@ -1022,7 +1023,7 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c
 
     if (it != NULL) {
         was_found = 1;
-        if (item_is_flushed(it)) {
+        if (item_is_flushed(it)) {  // 满足FLUSH条件，需要删除
             do_item_unlink(it, hv);
             STORAGE_delete(c->thread->storage, it);
             do_item_remove(it);
@@ -1034,7 +1035,7 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c
                 fprintf(stderr, " -nuked by flush");
             }
             was_found = 2;
-        } else if (it->exptime != 0 && it->exptime <= current_time) {
+        } else if (it->exptime != 0 && it->exptime <= current_time) {   // item过期了
             do_item_unlink(it, hv);
             STORAGE_delete(c->thread->storage, it);
             do_item_remove(it);
@@ -1755,6 +1756,7 @@ int init_lru_maintainer(void) {
 }
 
 /* Tail linkers and crawler for the LRU crawler. */
+/* 将爬虫item放到对应LRU队列的尾部 */
 void do_item_linktail_q(item *it) { /* item is the new tail */
     item **head, **tail;
     assert(it->it_flags == 1);
