@@ -94,7 +94,7 @@ static void thread_libevent_process(int fd, short which, void *arg);
  * Items accessible from an LRU must not be freed or modified
  * without first locking and removing from the LRU.
  */
-
+/* 哈希桶锁加锁 */
 void item_lock(uint32_t hv) {
     mutex_lock(&item_locks[hv & hashmask(item_lock_hashpower)]);
 }

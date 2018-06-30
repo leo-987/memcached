@@ -31,10 +31,9 @@ typedef struct {
     void *slots;           /* list of item ptrs，空闲item链表 */
     unsigned int sl_curr;   /* total free items in list */
 
-    /* 分配了slab_list空间并不一定分配了slab */
     unsigned int slabs;     /* how many slabs were allocated for this class */
 
-    void **slab_list;       /* array of slab pointers */
+    void **slab_list;       /* array of slab pointers，分配了slab_list空间并不一定分配了slab */
     unsigned int list_size; /* size of prev array */
 
     size_t requested; /* The number of requested bytes，本slab class分配出去的字节数 */
@@ -224,7 +223,7 @@ static int grow_slab_list (const unsigned int id) {
     return 1;
 }
 
-/* 把ptr指向的slab切分成相同大小的item，然后放入到编号为id的slab class的空闲链表中，相互用链表串起来 */
+/* 把ptr指向的slab切分成相同大小的item，然后放入到编号为id的class的空闲链表中，相互用链表串起来 */
 static void split_slab_page_into_freelist(char *ptr, const unsigned int id) {
     slabclass_t *p = &slabclass[id];
     int x;
@@ -743,7 +742,7 @@ static int slab_rebalance_start(void) {
     slab_rebal.done       = 0;
     // Don't need to do chunk move work if page is in global pool.
     if (slab_rebal.s_clsid == SLAB_GLOBAL_PAGE_POOL) {
-        slab_rebal.done = 1;
+        slab_rebal.done = 1;    // 如果是0号class，则class中的slab中的item都未被work线程使用，可以直接移动整个slab
     }
 
     slab_rebalance_signal = 2;
@@ -830,6 +829,8 @@ enum move_status {
  * This may not be safe on all platforms; If not, slabs_alloc() will need to
  * seed the item key while holding slabs_lock.
  * 将选中的src slab中的item清空并解除相关链表
+ * 如果item有work线程正在使用，则跳过，下一次再处理
+ * 如果item没有work线程在使用，则直接删除，即使没有过期
  */
 static int slab_rebalance_move(void) {
     slabclass_t *s_cls;
@@ -1062,7 +1063,7 @@ static int slab_rebalance_move(void) {
             slab_rebal.busy_items = 0;
             slab_rebal.busy_loops++;
         } else {
-            slab_rebal.done++;
+            slab_rebal.done++;  // 所有item都已清理完毕，可以开始移动slab
         }
     }
 
@@ -1071,7 +1072,9 @@ static int slab_rebalance_move(void) {
     return was_busy;
 }
 
-/* 实际移动slab */
+/*
+ * 实际移动slab
+ */
 static void slab_rebalance_finish(void) {
     slabclass_t *s_cls;
     slabclass_t *d_cls;
@@ -1107,7 +1110,7 @@ static void slab_rebalance_finish(void) {
      */
     s_cls->slabs--;
     for (x = 0; x < s_cls->slabs; x++) {
-        s_cls->slab_list[x] = s_cls->slab_list[x+1];
+        s_cls->slab_list[x] = s_cls->slab_list[x+1];    // 每个slab向前移动一格
     }
 
     d_cls->slab_list[d_cls->slabs++] = slab_rebal.slab_start;   // 移动到新链表的最后
@@ -1115,13 +1118,14 @@ static void slab_rebalance_finish(void) {
     if (slab_rebal.d_clsid > SLAB_GLOBAL_PAGE_POOL) {
         memset(slab_rebal.slab_start, 0, (size_t)settings.slab_page_size);
         split_slab_page_into_freelist(slab_rebal.slab_start,
-            slab_rebal.d_clsid);
+            slab_rebal.d_clsid);                                // 切分slab
     } else if (slab_rebal.d_clsid == SLAB_GLOBAL_PAGE_POOL) {
         /* mem_malloc'ed might be higher than mem_limit. */
         mem_limit_reached = false;
         memory_release();
     }
 
+    // 还原slab_rebal
     slab_rebal.busy_loops = 0;
     slab_rebal.done       = 0;
     slab_rebal.s_clsid    = 0;
@@ -1140,7 +1144,7 @@ static void slab_rebalance_finish(void) {
     slab_rebal.chunk_rescues = 0;
     slab_rebal.busy_deletes = 0;
 
-    slab_rebalance_signal = 0;
+    slab_rebalance_signal = 0;  // slab移动完成，继续休眠
 
     pthread_mutex_unlock(&slabs_lock);
 
@@ -1226,7 +1230,7 @@ static enum reassign_result_type do_slabs_reassign(int src, int dst) {
         return REASSIGN_SRC_DST_SAME;
 
     /* Special indicator to choose ourselves. */
-    /* 如果调用函数没有指定src，那么随机选择一个slab class */
+    /* 如果调用函数没有指定src，那么随机选择一个slab class，发生在LRU淘汰时，这是无法确定哪个slab class有较多空闲内存 */
     if (src == -1) {
         src = slabs_reassign_pick_any(dst);
         /* TODO: If we end up back at -1, return a new error type */

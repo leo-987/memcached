@@ -302,13 +302,13 @@ static int add_msghdr(conn *c)
         c->msgsize *= 2;
     }
 
-    msg = c->msglist + c->msgused;
+    msg = c->msglist + c->msgused;  // 指向空闲的msg节点
 
     /* this wipes msg_iovlen, msg_control, msg_controllen, and
        msg_flags, the last 3 of which aren't defined on solaris: */
     memset(msg, 0, sizeof(struct msghdr));
 
-    msg->msg_iov = &c->iov[c->iovused];
+    msg->msg_iov = &c->iov[c->iovused]; // 指向空闲的iovec
 
     if (IS_UDP(c->transport) && c->request_addr_size > 0) {
         msg->msg_name = &c->request_addr;
@@ -919,6 +919,7 @@ static void conn_set_state(conn *c, enum conn_states state) {
  * iov list.
  *
  * Returns 0 on success, -1 on out-of-memory.
+ * 确保c->iov数组中有可用的iovec
  */
 static int ensure_iov_space(conn *c) {
     assert(c != NULL);
@@ -938,8 +939,8 @@ static int ensure_iov_space(conn *c) {
 
         /* Point all the msghdr structures at the new list. */
         for (i = 0, iovnum = 0; i < c->msgused; i++) {
-            c->msglist[i].msg_iov = &c->iov[iovnum];
-            iovnum += c->msglist[i].msg_iovlen;
+            c->msglist[i].msg_iov = &c->iov[iovnum];    // msghdr重新指向新的iovec
+            iovnum += c->msglist[i].msg_iovlen;         // 一个msghdr可能包含多个iovec
         }
     }
 
@@ -966,7 +967,7 @@ static int add_iov(conn *c, const void *buf, int len) {
 
     if (IS_UDP(c->transport)) {
         do {
-            m = &c->msglist[c->msgused - 1];
+            m = &c->msglist[c->msgused - 1];    // 这里-1，是因为在之前的add_bin_header函数中将msgused++了一次
 
             /*
              * Limit UDP packets to UDP_MAX_PAYLOAD_SIZE bytes.
@@ -1003,16 +1004,16 @@ static int add_iov(conn *c, const void *buf, int len) {
         } while (leftover > 0);
     } else {
         /* Optimized path for TCP connections */
-        m = &c->msglist[c->msgused - 1];
+        m = &c->msglist[c->msgused - 1];    // 这里-1，是因为在之前的add_bin_header函数中将msgused++了一次
         if (m->msg_iovlen == IOV_MAX) {
             add_msghdr(c);
-            m = &c->msglist[c->msgused - 1];
+            m = &c->msglist[c->msgused - 1];    // 这里-1，是因为在之前的add_bin_header函数中将msgused++了一次
         }
 
         if (ensure_iov_space(c) != 0)
             return -1;
 
-        m->msg_iov[m->msg_iovlen].iov_base = (void *)buf;
+        m->msg_iov[m->msg_iovlen].iov_base = (void *)buf;   // 把要发送的数据挂到iovec上，这里实际数据的内存拷贝
         m->msg_iov[m->msg_iovlen].iov_len = len;
         c->msgbytes += len;
         c->iovused++;
@@ -1582,6 +1583,7 @@ static void write_bin_miss_response(conn *c, char *key, size_t nkey) {
     }
 }
 
+/* 处理GET请求 */
 static void process_bin_get_or_touch(conn *c) {
     item *it;
 
@@ -1608,7 +1610,7 @@ static void process_bin_get_or_touch(conn *c) {
 
         it = item_touch(key, nkey, realtime(exptime), c);
     } else {
-        it = item_get(key, nkey, c, DO_UPDATE);
+        it = item_get(key, nkey, c, DO_UPDATE); // 拿到key对应的item
     }
 
     if (it) {
@@ -2625,15 +2627,15 @@ static void complete_nread_binary(conn *c) {
                 c->cmd == PROTOCOL_BINARY_CMD_PREPEND) {
             process_bin_append_prepend(c);
         } else {
-            process_bin_update(c);  // 解析key
+            process_bin_update(c);  // SET命令，解析key
         }
         break;
     case bin_read_set_value:
-        complete_update_bin(c);     // 解析value
+        complete_update_bin(c);     // SET命令，解析value
         break;
     case bin_reading_get_key:
     case bin_reading_touch_key:
-        process_bin_get_or_touch(c);
+        process_bin_get_or_touch(c);    // GET命令
         break;
     case bin_reading_stat:
         process_bin_stat(c);
@@ -4590,6 +4592,7 @@ static void process_extstore_command(conn *c, token_t *tokens, const size_t ntok
     }
 }
 #endif
+/* 用来解析文本协议的命令 */
 static void process_command(conn *c, char *command) {
 
     token_t tokens[MAX_TOKENS];
@@ -4740,6 +4743,7 @@ static void process_command(conn *c, char *command) {
                 return;
             }
 
+            /* 客户端命令参数指定源和目的slab class id */
             src = strtol(tokens[2].value, NULL, 10);
             dst = strtol(tokens[3].value, NULL, 10);
 
@@ -4774,7 +4778,7 @@ static void process_command(conn *c, char *command) {
             out_string(c, "ERROR");
         }
     } else if (ntokens > 1 && strcmp(tokens[COMMAND_TOKEN].value, "lru_crawler") == 0) {
-        if (ntokens == 4 && strcmp(tokens[COMMAND_TOKEN + 1].value, "crawl") == 0) {
+        if (ntokens == 4 && strcmp(tokens[COMMAND_TOKEN + 1].value, "crawl") == 0) {    // lru_crawler crawl <classid,classid,classid|all>，对指定LRU进行清理
             int rv;
             if (settings.lru_crawler == false) {
                 out_string(c, "CLIENT_ERROR lru crawler disabled");
@@ -4834,7 +4838,7 @@ static void process_command(conn *c, char *command) {
                     break;
             }
             return;
-        } else if (ntokens == 4 && strcmp(tokens[COMMAND_TOKEN + 1].value, "tocrawl") == 0) {
+        } else if (ntokens == 4 && strcmp(tokens[COMMAND_TOKEN + 1].value, "tocrawl") == 0) {   // lru_crawler tocrawl <32u>，指定每个爬虫检查item的个数
             uint32_t tocrawl;
              if (!safe_strtoul(tokens[2].value, &tocrawl)) {
                 out_string(c, "CLIENT_ERROR bad command line format");
@@ -4843,7 +4847,7 @@ static void process_command(conn *c, char *command) {
             settings.lru_crawler_tocrawl = tocrawl;
             out_string(c, "OK");
             return;
-        } else if (ntokens == 4 && strcmp(tokens[COMMAND_TOKEN + 1].value, "sleep") == 0) {
+        } else if (ntokens == 4 && strcmp(tokens[COMMAND_TOKEN + 1].value, "sleep") == 0) { // lru_crawler sleep <microseconds>，爬虫每检查完一个item的休息时间
             uint32_t tosleep;
             if (!safe_strtoul(tokens[2].value, &tosleep)) {
                 out_string(c, "CLIENT_ERROR bad command line format");
@@ -5089,6 +5093,7 @@ static enum try_read_result try_read_udp(conn *c) {
  * at the data I've got after a number of reallocs...
  *
  * @return enum try_read_result
+ * 尽可能把socket的所有数据都读到连接的读buffer中
  */
 static enum try_read_result try_read_network(conn *c) {
     enum try_read_result gotdata = READ_NO_DATA_RECEIVED;
@@ -5136,9 +5141,9 @@ static enum try_read_result try_read_network(conn *c) {
             gotdata = READ_DATA_RECEIVED;
             c->rbytes += res;
             if (res == avail) {
-                continue;
+                continue;   // 可能socket中还有数据，继续读
             } else {
-                break;
+                break;      // 无数据可读
             }
         }
         if (res == 0) {
@@ -5219,6 +5224,8 @@ void do_accept_new_conns(const bool do_accept) {
  *   TRANSMIT_INCOMPLETE More data remaining to write.
  *   TRANSMIT_SOFT_ERROR Can't write any more right now.
  *   TRANSMIT_HARD_ERROR Can't write (c->state is set to conn_closing)
+ *
+ * 发送iovec指向的数据到socket中
  */
 static enum transmit_result transmit(conn *c) {
     assert(c != NULL);
@@ -5471,6 +5478,10 @@ static void drive_machine(conn *c) {
             break;
 
         case conn_parse_cmd :
+            /*
+             * 返回1，表示正在处理刚从socket读取的命令
+             * 返回0，需要继续从socket读取更多的数据才能进行解析
+             */
             if (try_read_command(c) == 0) {
                 /* wee need more data! */
                 conn_set_state(c, conn_waiting);
@@ -5679,7 +5690,7 @@ static void drive_machine(conn *c) {
             conn_set_state(c, conn_closing);
             break;
           }
-            switch (transmit(c)) {
+            switch (transmit(c)) {  // 发送数据
             case TRANSMIT_COMPLETE:
                 if (c->state == conn_mwrite) {
                     conn_release_items(c);

@@ -985,7 +985,7 @@ void item_stats_sizes(ADD_STAT add_stats, void *c) {
 item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c, const bool do_update) {
     item *it = assoc_find(key, nkey, hv);
     if (it != NULL) {
-        refcount_incr(it);
+        refcount_incr(it);  // 增加引用计数，防止item被回收
         /* Optimization for slab reassignment. prevents popular items from
          * jamming in busy wait. Can only do this here to satisfy lock order
          * of item_lock, slabs_lock. */
@@ -1023,7 +1023,7 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c
 
     if (it != NULL) {
         was_found = 1;
-        if (item_is_flushed(it)) {  // 满足FLUSH条件，需要删除
+        if (item_is_flushed(it)) {  // 满足FLUSH条件，需要回收
             do_item_unlink(it, hv);
             STORAGE_delete(c->thread->storage, it);
             do_item_remove(it);
@@ -1035,7 +1035,7 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c
                 fprintf(stderr, " -nuked by flush");
             }
             was_found = 2;
-        } else if (it->exptime != 0 && it->exptime <= current_time) {   // item过期了
+        } else if (it->exptime != 0 && it->exptime <= current_time) {   // item过期了，需要回收
             do_item_unlink(it, hv);
             STORAGE_delete(c->thread->storage, it);
             do_item_remove(it);
@@ -1071,7 +1071,7 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c
                     }
                 } else {
                     it->it_flags |= ITEM_FETCHED;
-                    do_item_update(it);
+                    do_item_update(it); // 更新item在LRU链表中的位置
                 }
             }
             DEBUG_REFCNT(it, '+');
@@ -1235,7 +1235,7 @@ int lru_pull_tail(const int orig_id, const int cur_lru,
                     do_item_unlink_nolock(search, hv);
                     removed++;
                     if (settings.slab_automove == 2) {
-                        slabs_reassign(-1, orig_id);    // 发现有item从LRU中淘汰，内存页重分配
+                        slabs_reassign(-1, orig_id);    // 发现有item从LRU中淘汰，表示这个class的内存不足，需要内存页重分配，源class随机选择
                     }
                 } else if (flags & LRU_PULL_RETURN_ITEM) {
                     /* Keep a reference to this item and return it. */

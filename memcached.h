@@ -385,7 +385,7 @@ struct settings {
     bool lru_maintainer_thread; /* LRU maintainer background thread */
     bool lru_segmented;     /* Use split or flat LRU's */
     bool slab_reassign;     /* Whether or not slab reassignment is allowed，是否启用内存页重分配，默认启用 */
-    int slab_automove;     /* Whether or not to automatically move slabs */
+    int slab_automove;     /* Whether or not to automatically move slabs，2表示LRU淘汰时就进行rebalance */
     double slab_automove_ratio; /* youngest must be within pct of oldest */
     unsigned int slab_automove_window; /* window mover for algorithm */
     int hashpower_init;     /* Starting hash power level，初始化哈希表时hash桶的长度 */
@@ -598,7 +598,7 @@ struct conn {
     int    sbytes;    /* how many bytes to swallow */
 
     /* data for the mwrite state */
-    struct iovec *iov;/* 连接建立时初始化 */
+    struct iovec *iov;/* iovec数组指针，连接建立时初始化 */
     int    iovsize;   /* number of elements allocated in iov[] */
     int    iovused;   /* number of elements used in iov[] */
 
@@ -608,10 +608,11 @@ struct conn {
     int    msgcurr;   /* element in msglist[] being transmitted now，指向当前要发送的msghdr */
     int    msgbytes;  /* number of bytes in current msg */
 
+    /* 待发送的item */
     item   **ilist;   /* list of items to write out */
     int    isize;
-    item   **icurr;
-    int    ileft;
+    item   **icurr;   /* 当前要发送的item */
+    int    ileft;     /* ilist中需要释放的item个数 */
 
     char   **suffixlist;
     int    suffixsize;
@@ -665,8 +666,8 @@ struct slab_rebalance {
     void *slab_start;   // 需要重分配的slab起始位置
     void *slab_end;     // 需要重分配的slab结束为止
     void *slab_pos;     // 当前正在清理的item位置
-    int s_clsid;
-    int d_clsid;
+    int s_clsid;        // rebalance源slab class id
+    int d_clsid;        // rebalance目标slab class id
     uint32_t busy_items;
     uint32_t rescues;
     uint32_t evictions_nomem;
@@ -674,10 +675,10 @@ struct slab_rebalance {
     uint32_t chunk_rescues;
     uint32_t busy_deletes;
     uint32_t busy_loops;
-    uint8_t done;
+    uint8_t done;   // 是否可以开始移动slab
 };
 
-extern struct slab_rebalance slab_rebal;
+extern struct slab_rebalance slab_rebal;    // rebalance时需要的相关信息
 #ifdef EXTSTORE
 extern void *ext_storage;
 #endif
