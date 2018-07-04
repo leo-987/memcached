@@ -60,7 +60,7 @@ static pthread_mutex_t stats_lock = PTHREAD_MUTEX_INITIALIZER;
 /* Lock to cause worker threads to hang up after being woken */
 static pthread_mutex_t worker_hang_lock;
 
-/* Free list of CQ_ITEM structs */
+/* Free list of CQ_ITEM structs，全局变量，使用时需要上锁 */
 static CQ_ITEM *cqi_freelist;
 static pthread_mutex_t cqi_freelist_lock;
 

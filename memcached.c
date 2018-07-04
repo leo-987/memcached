@@ -154,8 +154,14 @@ static enum transmit_result transmit(conn *c);
  * Also, the clock timer could be broken out into its own thread and we
  * can block the listener via a condition.
  */
+/*
+ * 主线程当前是否能监听新连接请求，打开文件数超过阈值，则设置为false，并停止epoll监听可读事件
+ * 有老连接关闭，则设置为true
+ */
 static volatile bool allow_new_conns = true;
 static struct event maxconnsevent;
+
+/* 定时检测是否可监听新连接请求，没有使用通知机制 */
 static void maxconns_handler(const int fd, const short which, void *arg) {
     struct timeval t = {.tv_sec = 0, .tv_usec = 10000};
 
@@ -333,6 +339,8 @@ static pthread_t conn_timeout_tid;
 
 #define CONNS_PER_SLICE 100
 #define TIMEOUT_MSG_SIZE (1 + sizeof(int))
+
+/* 超时连接检测线程 */
 static void *conn_timeout_thread(void *arg) {
     int i;
     conn *c;
@@ -5391,7 +5399,7 @@ static void drive_machine(conn *c) {
     while (!stop) {
 
         switch(c->state) {
-        case conn_listening:
+        case conn_listening:    // 监听socket初始状态
             addrlen = sizeof(addr);
 #ifdef HAVE_ACCEPT4
             if (use_accept4) {
@@ -5414,7 +5422,7 @@ static void drive_machine(conn *c) {
                 } else if (errno == EMFILE) {
                     if (settings.verbose > 0)
                         fprintf(stderr, "Too many open connections\n");
-                    accept_new_conns(false);
+                    accept_new_conns(false);    // 打开文件数过多，停止监听新连接
                     stop = true;
                 } else {
                     perror("accept()");
@@ -5423,6 +5431,7 @@ static void drive_machine(conn *c) {
                 break;
             }
             if (!use_accept4) {
+                /* 如果不使用accept4，那么需要单独设置这个socket为非阻塞，效果和accept4传入SOCK_NONBLOCK参数相同 */
                 if (fcntl(sfd, F_SETFL, fcntl(sfd, F_GETFL) | O_NONBLOCK) < 0) {
                     perror("setting O_NONBLOCK");
                     close(sfd);
@@ -7703,6 +7712,7 @@ int main (int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
 
+    /* 超时连接检测系统 */
     if (settings.idle_timeout && start_conn_timeout_thread() == -1) {
         exit(EXIT_FAILURE);
     }

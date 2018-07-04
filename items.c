@@ -187,8 +187,8 @@ static size_t item_make_header(const uint8_t nkey, const unsigned int flags, con
 }
 
 /*
- * 从序号为id的slab class的free list中取出一块空闲的chunk
- * 如果没有足够的空闲chunk，则从LRU队列中回收老的item空间，或者由slab class分配新的slab空间
+ * 从序号为id的class的free list中取出一块空闲的chunk
+ * 如果没有足够的空闲chunk，则从LRU队列中回收老的item空间，或者由class分配新的slab空间
  */
 item *do_item_alloc_pull(const size_t ntotal, const unsigned int id) {
     item *it = NULL;

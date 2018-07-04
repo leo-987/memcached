@@ -561,7 +561,7 @@ struct conn {
     int    sfd;     // socket fd
     sasl_conn_t *sasl_conn;
     bool authenticated;
-    enum conn_states  state;
+    enum conn_states  state;    // 连接的当前状态
     enum bin_substates substate;
     rel_time_t last_cmd_time;
     struct event event;
